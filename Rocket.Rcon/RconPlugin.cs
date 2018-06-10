@@ -1,6 +1,5 @@
 ﻿using Rocket.API.DependencyInjection;
 using Rocket.Core.Plugins;
-using PrimS.Telnet;
 using Rocket.API.User;
 using Rocket.Rcon.Config;
 using Rocket.Rcon.Services;
