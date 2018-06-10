@@ -17,6 +17,9 @@ namespace Rocket.Rcon.Services
         public string ServiceName => "RconLogger";
         public void Log(string message, LogLevel level = LogLevel.Information, Exception exception = null, params object[] arguments)
         {
+            if(level == LogLevel.Fatal)
+                _rconServer.Broadcast(null, "\a");
+
             _rconServer.Broadcast(null, $"[{DateTime.Now:t}] [{level}] {message}", null, arguments);
         }
 

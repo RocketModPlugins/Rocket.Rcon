@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Threading;
+using Rocket.API;
 using Rocket.API.Commands;
 using Rocket.API.DependencyInjection;
 using Rocket.API.Logging;
@@ -28,6 +29,7 @@ namespace Rocket.Rcon.Services
         private readonly ICommandHandler _commandHandler;
         private readonly ILogger _logger;
         private readonly ITaskScheduler _scheduler;
+        private readonly IRuntime _runtime;
         private RconConfig _config;
         private TcpListener _listener;
         private Thread _waitingThread;
@@ -38,13 +40,15 @@ namespace Rocket.Rcon.Services
             IDependencyContainer container,
             ICommandHandler commandHandler,
             ILogger logger,
-            ITaskScheduler scheduler)
+            ITaskScheduler scheduler,
+            IRuntime runtime)
             : base(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
         {
             _container = container;
             _commandHandler = commandHandler;
             _logger = logger;
             _scheduler = scheduler;
+            _runtime = runtime;
 
             IPHostEntry ipHostInfo = Dns.GetHostEntry(Dns.GetHostName());
             IPAddress = ipHostInfo.AddressList.First(o => o.AddressFamily == AddressFamily.InterNetwork);
@@ -125,7 +129,6 @@ namespace Rocket.Rcon.Services
                 {
                     RconConnection connection = new RconConnection(_listener.AcceptTcpClient(), this, _logger, ++_connectionId);
                     _connections.Add(connection);
-                    connection.WriteLine("RocketRcon v" + Assembly.GetExecutingAssembly().GetName().Version);
                     ThreadPool.QueueUserWorkItem(HandleConnection, connection);
                 }
             });
@@ -161,93 +164,94 @@ namespace Rocket.Rcon.Services
         private void HandleConnection(object state)
         {
             RconConnection connection = (RconConnection)state;
+            connection.WriteLine("RocketRcon v" + _runtime.Version);
 
             try
             {
                 int nonAuthCommandCount = 0;
-                if (_config.MaxConcurrentConnections > 0)
+                if (_config.MaxConcurrentConnections > 0 && _connections.Count > _config.MaxConcurrentConnections)
                 {
-                    if (_connections.Count > _config.MaxConcurrentConnections)
-                    {
-                        connection.Close("Too many clients connected to RCON!");
-                        _logger.LogWarning(connection.ConnectionName + ": Maximum RCON connections has been reached.");
-                    }
-
-                    return;
+                    connection.Close("Too many clients connected to RCON!");
+                    _logger.LogWarning(connection.ConnectionName + ": Maximum RCON connections has been reached.");
                 }
-
-                while (connection.IsOnline)
+                else
                 {
-                    Thread.Sleep(100);
-                    var commandLine = connection.Read();
-                    if (commandLine == "") break;
-                    if (!connection.Authenticated)
+                    while (connection.IsOnline)
                     {
-                        nonAuthCommandCount++;
-                        if (nonAuthCommandCount > 4)
-                        {
-                            connection.Close("Too many commands sent before authentication!");
-                            _logger.LogWarning(connection.ConnectionName + ": Client has sent too many commands before authentication!");
-                            break;
-                        }
-                    }
-
-                    commandLine = commandLine.Trim('\n', '\r', ' ', '\0');
-                    if (commandLine == "quit")
-                    {
-                        connection.Close("Quit.");
-                        break;
-                    }
-
-
-                    if (commandLine == "") continue;
-                    if (commandLine == "login")
-                    {
-                        connection.WriteLine(connection.Authenticated
-                            ? "Notice: You are already logged in!"
-                            : "Syntax: login <user> <password>");
-                        continue;
-                    }
-
-                    var args = commandLine.Split(' ');
-                    if (args.Length > 2 && args[0] == "login")
-                    {
-                        if (connection.Authenticated)
-                        {
-                            connection.WriteLine("Notice: You are already logged in!");
+                        Thread.Sleep(100);
+                        var commandLine = connection.Read();
+                        if (commandLine == "")
                             continue;
-                        }
 
-                        foreach (var user in _config.RconUsers)
+                        if (!connection.Authenticated)
                         {
-                            if (args[1].Equals(user.Name, StringComparison.Ordinal) && args[2].Equals(user.Password, StringComparison.Ordinal))
+                            nonAuthCommandCount++;
+                            if (nonAuthCommandCount > 4)
                             {
-                                connection.Authenticated = true;
-                                _logger.LogInformation(connection.ConnectionName + " has logged in.");
+                                connection.Close("Too many commands sent before authentication!");
+                                _logger.LogWarning(connection.ConnectionName + ": Client has sent too many commands before authentication!");
                                 break;
                             }
                         }
 
-                        if (connection.Authenticated)
+                        commandLine = commandLine.Trim('\n', '\r', ' ', '\0');
+                        if (commandLine == "quit")
+                        {
+                            connection.Close("Quit.");
+                            break;
+                        }
+
+
+                        if (string.IsNullOrEmpty(commandLine))
                             continue;
 
-                        connection.WriteLine("Error: Invalid password!");
-                        _logger.LogWarning("Client has failed to log in.");
-                        break;
+                        if (commandLine == "login")
+                        {
+                            connection.WriteLine(connection.Authenticated
+                                ? "Notice: You are already logged in!"
+                                : "Syntax: login <user> <password>");
+                            continue;
+                        }
+
+                        var args = commandLine.Split(' ');
+                        if (args.Length > 2 && args[0] == "login")
+                        {
+                            if (connection.Authenticated)
+                            {
+                                connection.WriteLine("Notice: You are already logged in!");
+                                continue;
+                            }
+
+                            foreach (var user in _config.RconUsers)
+                            {
+                                if (args[1].Equals(user.Name, StringComparison.Ordinal) && args[2].Equals(user.Password, StringComparison.Ordinal))
+                                {
+                                    connection.Authenticated = true;
+                                    _logger.LogInformation(connection.ConnectionName + " has logged in.");
+                                    break;
+                                }
+                            }
+
+                            if (connection.Authenticated)
+                                continue;
+
+                            connection.Close("Invalid password!");
+                            _logger.LogWarning("Client has failed to log in.");
+                            break;
+                        }
+
+
+                        if (!connection.Authenticated)
+                        {
+                            connection.WriteLine("Error: You have not logged in yet! Login with syntax: login <username> <password>");
+                            continue;
+                        }
+
+                        //execute command on main thread
+                        _scheduler.ScheduleNextFrame(RconPlugin,
+                            () => _commandHandler.HandleCommand(connection, commandLine, ""), "RconCommandExecutionTask");
                     }
-
-
-                    if (!connection.Authenticated)
-                    {
-                        connection.WriteLine("Error: You have not logged in yet! Login with syntax: login <username> <password>");
-                        continue;
-                    }
-
-                    //execute command on main thread
-                    _scheduler.ScheduleNextFrame(RconPlugin,
-                        () => _commandHandler.HandleCommand(connection, commandLine, ""), "RconCommandExecutionTask");
                 }
-
                 _connections.Remove(connection);
                 _logger.LogInformation(connection.ConnectionName + " has disconnected.");
                 connection.Client.Close();

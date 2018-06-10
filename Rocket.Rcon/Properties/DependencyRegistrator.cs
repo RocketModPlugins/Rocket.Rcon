@@ -12,8 +12,7 @@ namespace Rocket.Rcon.Properties
         {
             container.RegisterSingletonType<IPermissionProvider, RconRootPermissionProvider>("rcon");
             container.RegisterSingletonType<IUserManager, RconServer>("rcon");
-            container.RegisterSingletonType<ILogger, RconLogger>("rcon");
-
+            container.RegisterSingletonInstance<ILogger>(new RconLogger(container));
         }
     }
 }
