@@ -8,7 +8,7 @@ namespace Rocket.Rcon
 {
     public class RconPlugin : Plugin<RconConfig>
     {
-        private RconServer _server;
+        public RconServer Server { get; private set; }
 
         public RconPlugin(IDependencyContainer container) : base("Rcon", container)
         {
@@ -17,16 +17,15 @@ namespace Rocket.Rcon
         protected override void OnLoad(bool isFromReload)
         {
             base.OnLoad(isFromReload);
-            _server = (RconServer) Container.Resolve<IUserManager>("rcon");
-            _server.SetConfig(ConfigurationInstance);
-            _server.StartListening();
+            Server = (RconServer) Container.Resolve<IUserManager>("rcon");
+            Server.SetConfig(ConfigurationInstance);
+            Server.StartListening();
         }
 
         protected override void OnUnload()
         {
             base.OnUnload();
-            _server.StopListening();
-            _server.Dispose();
+            Server.Dispose();
         }
     }
 }

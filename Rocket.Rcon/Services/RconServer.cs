@@ -4,7 +4,6 @@ using System.Drawing;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Reflection;
 using System.Threading;
 using Rocket.API;
 using Rocket.API.Commands;
@@ -21,7 +20,7 @@ namespace Rocket.Rcon.Services
     public class RconServer : Socket, IDisposable, IUserManager
     {
         public string ServiceName => "RconUserManager";
-        public IEnumerable<IUser> OnlineUsers => _connections.Cast<IUser>();
+        public IEnumerable<IUser> OnlineUsers => _connections.Where(c => c.Authenticated).Cast<IUser>();
 
         private static int _connectionId;
         private readonly List<RconConnection> _connections = new List<RconConnection>();
@@ -30,6 +29,7 @@ namespace Rocket.Rcon.Services
         private readonly ILogger _logger;
         private readonly ITaskScheduler _scheduler;
         private readonly IRuntime _runtime;
+        private readonly IHost _host;
         private RconConfig _config;
         private TcpListener _listener;
         private Thread _waitingThread;
@@ -37,18 +37,15 @@ namespace Rocket.Rcon.Services
         private RconPlugin RconPlugin => (RconPlugin)_container.Resolve<IPluginManager>().GetPlugin("Rcon");
 
         public RconServer(
-            IDependencyContainer container,
-            ICommandHandler commandHandler,
-            ILogger logger,
-            ITaskScheduler scheduler,
-            IRuntime runtime)
+            IDependencyContainer container)
             : base(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
         {
             _container = container;
-            _commandHandler = commandHandler;
-            _logger = logger;
-            _scheduler = scheduler;
-            _runtime = runtime;
+            _commandHandler = container.Resolve<ICommandHandler>();
+            _logger = container.Resolve<ILogger>();
+            _runtime = container.Resolve<IRuntime>(); 
+            _host = container.Resolve<IHost>(); 
+            container.TryResolve(null, out _scheduler);
 
             IPHostEntry ipHostInfo = Dns.GetHostEntry(Dns.GetHostName());
             IPAddress = ipHostInfo.AddressList.First(o => o.AddressFamily == AddressFamily.InterNetwork);
@@ -247,9 +244,16 @@ namespace Rocket.Rcon.Services
                             continue;
                         }
 
-                        //execute command on main thread
-                        _scheduler.ScheduleNextFrame(RconPlugin,
-                            () => _commandHandler.HandleCommand(connection, commandLine, ""), "RconCommandExecutionTask");
+                        if (_host.Name == "Rocket.Console" || _scheduler == null)
+                        {
+                            SendCommand(connection, commandLine);
+                        }
+                        else
+                        {
+                            //execute command on main thread
+                            _scheduler.ScheduleNextFrame(RconPlugin,
+                                () => SendCommand(connection, commandLine), "RconCommandExecutionTask");
+                        }
                     }
                 }
                 _connections.Remove(connection);
@@ -260,6 +264,13 @@ namespace Rocket.Rcon.Services
             {
                 _logger.LogError(connection.ConnectionName + " caused error:", ex);
             }
+        }
+
+        private void SendCommand(RconConnection connection, string commandLine)
+        {
+            var success = _commandHandler.HandleCommand(connection, commandLine, "");
+            if(!success)
+                connection.WriteLine("\"" + commandLine + "\": command not found.");
         }
     }
 }

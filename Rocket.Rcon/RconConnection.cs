@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -16,10 +17,13 @@ namespace Rocket.Rcon
         public bool Authenticated { get; set; }
         public string Username { get; set; }
 
+        public EndPoint RemoteEndPoint { get; }
+
         public RconConnection(TcpClient client, IUserManager userManager, ILogger logger, int connectionId)
         {
             _logger = logger;
             Client = client;
+            RemoteEndPoint = client.Client.RemoteEndPoint;
             Authenticated = false;
             SessionConnectTime = DateTime.Now;
             UserManager = userManager;
@@ -114,7 +118,7 @@ namespace Rocket.Rcon
             SessionDisconnectTime = DateTime.Now;
         }
 
-        public string ConnectionName => "[" + ConnectionId + "] " + Username + "@" + Client.Client.RemoteEndPoint;
+        public string ConnectionName => "[" + ConnectionId + "] " + Username + "@" + RemoteEndPoint;
 
         public string Address => Client.Client.Connected ? Client.Client.RemoteEndPoint.ToString() : "?";
         public string Id => Username;
