@@ -18,6 +18,14 @@ namespace Rocket.Rcon.Services
 
         public override string ServiceName => "RconLogger";
 
+        public override bool IsEnabled(LogLevel level)
+        {
+            if (level == LogLevel.Game)
+                return true;
+
+            return base.IsEnabled(level);
+        }
+
         public override void OnLog(string message, LogLevel level = LogLevel.Information, Exception exception = null, params object[] bindings)
         {
             if (_rconServer == null)
