@@ -8,7 +8,7 @@ using Rocket.Core.Logging;
 
 namespace Rocket.Rcon.Services
 {
-    public class RconLogger : ConsoleLogger
+    public class RconLogger : FormattedLogger
     {
         private readonly IDependencyContainer _container;
         private RconServer _rconServer;
