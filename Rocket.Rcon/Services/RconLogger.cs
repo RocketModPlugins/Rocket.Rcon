@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Drawing;
+using System.Linq;
 using Rocket.API.DependencyInjection;
 using Rocket.API.Logging;
 using Rocket.API.Plugins;
@@ -6,7 +8,7 @@ using Rocket.Core.Logging;
 
 namespace Rocket.Rcon.Services
 {
-    public class RconLogger : BaseLogger
+    public class RconLogger : ConsoleLogger
     {
         private readonly IDependencyContainer _container;
         private RconServer _rconServer;
@@ -26,6 +28,22 @@ namespace Rocket.Rcon.Services
             return base.IsEnabled(level);
         }
 
+        protected override void WriteColored(string format, Color? color = null, params object[] bindings)
+        {
+            foreach (var conn in _rconServer.OnlineUsers.Cast<RconConnection>())
+            {
+                conn.Write(string.Format(format, bindings), color);
+            }
+        }
+
+        protected override void WriteLineColored(string format, Color? color = null, params object[] bindings)
+        {
+            foreach (var conn in _rconServer.OnlineUsers.Cast<RconConnection>())
+            {
+                conn.WriteLine(string.Format(format, bindings), color);
+            }
+        }
+
         public override void OnLog(string message, LogLevel level = LogLevel.Information, Exception exception = null, params object[] bindings)
         {
             if (_rconServer == null)
@@ -40,7 +58,7 @@ namespace Rocket.Rcon.Services
             if (level == LogLevel.Fatal)
                 _rconServer.Broadcast(null, "\a");
 
-            _rconServer.Broadcast(null, $"[{DateTime.Now:t}] [{level}] {message}", null, bindings);
+            base.OnLog(message, level, exception, bindings);
         }
     }
 }

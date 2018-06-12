@@ -18,5 +18,7 @@ namespace Rocket.Rcon.Config
         };
 
         public uint MaxConcurrentConnections { get; set; } = 10;
+
+        public bool UseAnsiFormatting { get; set; } = true;
     }
 }

@@ -13,6 +13,7 @@ using Rocket.API.Plugins;
 using Rocket.API.Scheduler;
 using Rocket.API.User;
 using Rocket.Core.Logging;
+using Rocket.Core.Scheduler;
 using Rocket.Rcon.Config;
 
 namespace Rocket.Rcon.Services
@@ -68,19 +69,19 @@ namespace Rocket.Rcon.Services
 
         public bool Ban(IUserInfo user, IUser bannedBy = null, string reason = null, TimeSpan? timeSpan = null)
         {
-            throw new NotImplementedException();
+            throw new NotSupportedException();
         }
 
         public bool Unban(IUserInfo user, IUser unbannedBy = null)
         {
-            throw new NotImplementedException();
+            throw new NotSupportedException();
         }
 
         public void SendMessage(IUser sender, IUser receiver, string message, Color? color = null, params object[] arguments)
         {
             var conn = (RconConnection)receiver;
             if (conn.Authenticated)
-                conn.WriteLine(string.Format(message, arguments));
+                conn.WriteLine(string.Format(message, arguments), color);
         }
 
         public void Broadcast(IUser sender, IEnumerable<IUser> receivers, string message, Color? color = null, params object[] arguments)
@@ -89,7 +90,7 @@ namespace Rocket.Rcon.Services
             {
                 var conn = (RconConnection)user;
                 if (conn.Authenticated)
-                    conn.WriteLine(string.Format(message, arguments));
+                    conn.WriteLine(string.Format(message, arguments), color);
             }
         }
 
@@ -99,7 +100,7 @@ namespace Rocket.Rcon.Services
             {
                 var conn = (RconConnection)user;
                 if (conn.Authenticated)
-                    conn.WriteLine(string.Format(message, arguments));
+                    conn.WriteLine(string.Format(message, arguments), color);
             }
         }
 
@@ -124,7 +125,7 @@ namespace Rocket.Rcon.Services
             {
                 while (IsListening)
                 {
-                    RconConnection connection = new RconConnection(_listener.AcceptTcpClient(), this, _logger, ++_connectionId);
+                    RconConnection connection = new RconConnection(_container, _listener.AcceptTcpClient(), this, _logger, ++_connectionId, _config.UseAnsiFormatting);
                     _connections.Add(connection);
                     ThreadPool.QueueUserWorkItem(HandleConnection, connection);
                 }
@@ -161,7 +162,8 @@ namespace Rocket.Rcon.Services
         private void HandleConnection(object state)
         {
             RconConnection connection = (RconConnection)state;
-            connection.WriteLine("RocketRcon v" + _runtime.Version);
+            connection.WriteLine("RocketRcon v" + _runtime.Version, Color.Cyan);
+            connection.WriteLine("Please log in with \"login <username> <password>\".");
 
             try
             {
@@ -175,6 +177,8 @@ namespace Rocket.Rcon.Services
                 {
                     while (connection.IsOnline)
                     {
+                        connection.Write("> ", Color.Cyan);
+
                         Thread.Sleep(100);
                         var commandLine = connection.Read();
                         if (commandLine == "")
@@ -206,7 +210,7 @@ namespace Rocket.Rcon.Services
                         {
                             connection.WriteLine(connection.Authenticated
                                 ? "Notice: You are already logged in!"
-                                : "Syntax: login <user> <password>");
+                                : "Syntax: login <user> <password>", Color.Red);
                             continue;
                         }
 
@@ -215,7 +219,7 @@ namespace Rocket.Rcon.Services
                         {
                             if (connection.Authenticated)
                             {
-                                connection.WriteLine("Notice: You are already logged in!");
+                                connection.WriteLine("Notice: You are already logged in!", Color.Red);
                                 continue;
                             }
 
@@ -240,7 +244,7 @@ namespace Rocket.Rcon.Services
 
                         if (!connection.Authenticated)
                         {
-                            connection.WriteLine("Error: You have not logged in yet! Login with syntax: login <username> <password>");
+                            connection.WriteLine("Error: You have not logged in yet! Login with syntax: login <username> <password>", Color.Red);
                             continue;
                         }
 
@@ -270,7 +274,7 @@ namespace Rocket.Rcon.Services
         {
             var success = _commandHandler.HandleCommand(connection, commandLine, "");
             if(!success)
-                connection.WriteLine("\"" + commandLine + "\": command not found.");
+                connection.WriteLine("\"" + commandLine + "\": command not found.", Color.Red);
         }
     }
 }

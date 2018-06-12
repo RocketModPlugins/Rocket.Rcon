@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using Rocket.API.DependencyInjection;
 using Rocket.API.Logging;
 using Rocket.API.User;
 using Rocket.Core.Logging;
@@ -12,31 +14,54 @@ namespace Rocket.Rcon
 {
     public class RconConnection : IUser
     {
+        private const string ESC = "\u001b[";
+
         private readonly ILogger _logger;
+        private readonly bool _useAnsi;
         public TcpClient Client { get; set; }
         public bool Authenticated { get; set; }
         public string Username { get; set; }
 
         public EndPoint RemoteEndPoint { get; }
 
-        public RconConnection(TcpClient client, IUserManager userManager, ILogger logger, int connectionId)
+        public RconConnection(IDependencyContainer container, TcpClient client, IUserManager userManager, ILogger logger, int connectionId, bool useAnsi)
         {
             _logger = logger;
+            _useAnsi = useAnsi;
             Client = client;
             RemoteEndPoint = client.Client.RemoteEndPoint;
             Authenticated = false;
             SessionConnectTime = DateTime.Now;
             UserManager = userManager;
             ConnectionId = connectionId;
+            Container = container.CreateChildContainer();
         }
 
-        public void Write(string text)
+        public void Write(string text, Color? color = null, FormattingStyle style = FormattingStyle.Default)
         {
-            byte[] data = new UTF8Encoding().GetBytes(text);
+            if (_useAnsi && color != null)
+            {
+                text = ESC + $"38;2;{color.Value.R};{color.Value.G};{color.Value.B}m" + text;
+            }
+
+            SendString(text);
+
+            if (color != null)
+            {
+                //reset color
+                SendString(ESC + "0m");
+            }
+        }
+
+        private void SendString(string s)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(s);
             try
             {
                 if (Client.Client.Connected)
+                {
                     Client.GetStream().Write(data, 0, data.Length);
+                }
             }
             catch (Exception ex)
             {
@@ -44,9 +69,9 @@ namespace Rocket.Rcon
             }
         }
 
-        public void WriteLine(string text)
+        public void WriteLine(string text, Color? color = null, FormattingStyle style = FormattingStyle.Default)
         {
-            Write(text + "\r\n");
+            Write(text + "\r\n", color, style);
         }
 
         public string Read()
@@ -110,7 +135,7 @@ namespace Rocket.Rcon
 
             if (reason != null)
             {
-                WriteLine("Terminated: " + reason);
+                WriteLine("Terminated: " + reason, Color.DarkRed);
                 Thread.Sleep(1500);
             }
 
@@ -131,5 +156,13 @@ namespace Rocket.Rcon
         public DateTime? SessionDisconnectTime { get; private set; }
         public DateTime? LastSeen => IsOnline ? DateTime.Now : SessionDisconnectTime ?? SessionConnectTime;
         public string UserType => "RconUser";
+        public IDependencyContainer Container { get; }
+    }
+
+    public enum FormattingStyle
+    {
+        Default,
+        Bold,
+        Italic
     }
 }
